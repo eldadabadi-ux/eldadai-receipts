@@ -33,6 +33,12 @@ const sh = (cmd) => execSync(cmd, { encoding: 'utf8' }).trim()
 
 /** Turn a wall of test output into the one line that explains the failure. */
 function diagnose(out) {
+  if (/vulnerabilit(y|ies)/i.test(out) && /npm audit fix/i.test(out))
+    return 'A production dependency has a known High vulnerability.
+'
+         + '      Run: npm audit --omit=dev   then   npm audit fix
+'
+         + '      If the fix is a breaking major, decide deliberately - do not delete this gate.'
   if (/Host not in allowlist|ENOTFOUND|EAI_AGAIN|fetch failed|ECONNREFUSED/i.test(out))
     return 'Could not reach Supabase. Check your connection and .env.test - this is not a code problem.'
   if (/PENDING|pending,/.test(out))
@@ -84,15 +90,22 @@ if (!commits.length) {
 // ── 2. checks ────────────────────────────────────────────────────────────────
 console.log(c.b('Checks'))
 step('unit tests        ', 'npm run test:unit')
+step('offline security  ', 'npm run test:security:offline')
+
+// Dependency gate (ISO A.8.8). PRODUCTION tree only: dev-only advisories under
+// wrangler/vite are not shipped to anyone and must not block a release that
+// fixes something real. `--audit-level=high` is the line - a release carrying a
+// known High in code the customer actually runs needs a decision, not a default.
+step('dependency audit  ', 'npm audit --omit=dev --audit-level=high')
 
 if (existsSync('.env.test')) {
   // A pending migration is an outage that no test catches: the tests pass
   // against a database where someone happened to run the SQL by hand.
   step('migrations        ', 'npm run migrations -- --check')
-  step('security tests    ', 'npm run test:security')
+  step('RLS pentest       ', 'npm run test:security')
 } else {
   console.log('  ' + c.y('migrations         - skipped (no .env.test)'))
-  console.log('  ' + c.y('security tests     - skipped (no .env.test)'))
+  console.log('  ' + c.y('RLS pentest        - skipped (no .env.test)'))
 }
 
 step('build             ', 'npm run build')

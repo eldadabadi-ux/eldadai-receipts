@@ -1,13 +1,24 @@
 name: Deploy to Cloudflare Pages
 
+# WHY the gates below exist: this workflow used to be checkout → build → deploy.
+# `npm run ship` carries the real release gates (tests, migration ledger,
+# dependency audit, build), but ship is a LOCAL command — and every push to
+# master reached production through this file without passing a single one of
+# them. A gate that one of the two release paths skips is not a gate.
+#
+# The job is deliberately one sequence rather than parallel jobs: nothing here
+# is slow enough to be worth a deploy that starts before the checks finish.
+
 on:
   push:
+    branches: [master]
+  pull_request:
     branches: [master]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    name: Build and Deploy
+    name: Verify and Deploy
 
     steps:
       - name: Checkout
@@ -22,13 +33,39 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Unit tests
+        run: npm run test:unit
+
+      # Network-free security checks: CORS policy, input ceilings, SSRF
+      # allowlist, response headers, no secrets in the tree.
+      - name: Security tests (offline)
+        run: npm run test:security:offline
+
+      # Production dependency tree only — a dev-only advisory under wrangler is
+      # not shipped to a customer and must not block a release that fixes
+      # something real.
+      - name: Dependency audit (production tree)
+        run: npm audit --omit=dev --audit-level=high
+
+      # Cross-tenant RLS proof. Needs Supabase credentials; when the secrets are
+      # absent the suite skips itself cleanly rather than failing, so a fork or a
+      # first-time setup is not blocked by a check it cannot run.
+      - name: RLS cross-tenant pentest
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: npm run test:security
+
       - name: Build
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: npm run build
 
+      # Pull requests stop here: verified, never deployed.
       - name: Deploy to Cloudflare Pages
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}

@@ -18,6 +18,7 @@
 import { wrapAuthErrors } from '../_lib/auth.js'
 import { guardOwner } from '../_lib/guards.js'
 import { writeAudit } from '../_lib/audit.js'
+import { errorResponse } from '../_lib/response.js'
 import { MODULE_FLAGS, resolveFlags } from '../_lib/flags.js'
 
 const cors = { 'Content-Type': 'application/json' }
@@ -135,7 +136,13 @@ export const onRequestPost = wrapAuthErrors(async (context) => {
     headers: { ...headers, Prefer: 'resolution=merge-duplicates,return=representation' },
     body: JSON.stringify({ org_id: orgId, ...record }),
   })
-  if (!res.ok) return Response.json({ error: 'write_failed', detail: (await res.text()).slice(0, 200) }, { status: 400, headers: cors })
+  if (!res.ok) {
+    // A.8.28 — upstream detail (PostgREST constraint names, column names) is
+    // logged server-side with a correlation id, never returned to the caller.
+    return errorResponse('שמירת כרטיס הלקוח נכשלה', 400, {
+      code: 'write_failed', err: (await res.text()).slice(0, 500), headers: cors,
+    })
+  }
   const saved = (await res.json())?.[0]
 
   await writeAudit(context.env, {
