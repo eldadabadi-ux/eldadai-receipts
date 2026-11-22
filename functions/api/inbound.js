@@ -19,10 +19,14 @@ import { makeDb, alreadyImported, ingestReceipt } from './_lib/mailIngest.js'
 import { aliasFromAddress, pickAttachments } from './_lib/inbound.js'
 import { resolveOrgId } from './_lib/auth.js'
 import { loadFlags } from './_lib/flags.js'
+import { writeDenial } from './_lib/audit.js'
 
 export async function onRequestPost({ request, env }) {
   const secret = request.headers.get('x-inbound-secret') || ''
   if (!env.INBOUND_SECRET || !constantTimeEqual(secret, env.INBOUND_SECRET)) {
+    // Nobody is authenticated here, so there is no user id to record - which is
+    // exactly why the attempt is worth recording at all.
+    await writeDenial(env, { scope: 'inbound', reason: 'bad_secret', request })
     return new Response('forbidden', { status: 403 })
   }
 

@@ -17,6 +17,7 @@
 
 import { requireUser } from './auth.js'
 import { checkRateLimit, rateLimitedResponse } from './rateLimit.js'
+import { writeDenial } from './audit.js'
 
 // Platform owner — configurable via the Cloudflare env (SUPERADMIN_EMAIL); the
 // fallback keeps the console reachable if the var is ever missing.
@@ -45,6 +46,9 @@ export async function guardOwner(context) {
   const caller = await requireUser(context.request, context.env)
 
   if (!isSuperadmin(caller.email, context.env)) {
+    await writeDenial(context.env, {
+      userId: caller.user_id, scope: 'admin', reason: 'not_owner', request: context.request,
+    })
     return { res: Response.json({ error: 'forbidden' }, { status: 403, headers: JSON_HEADERS }) }
   }
 
@@ -70,6 +74,9 @@ export async function guardOwner(context) {
         f => f.status === 'verified' && (f.factor_type === 'totp' || f.type === 'totp'),
       )
       if (hasTotp && caller.aal !== 'aal2') {
+        await writeDenial(context.env, {
+          userId: caller.user_id, scope: 'admin', reason: 'mfa_required', request: context.request,
+        })
         return {
           res: Response.json(
             { error: 'mfa_required', message: 'נדרש אימות דו-שלבי (2FA).' },

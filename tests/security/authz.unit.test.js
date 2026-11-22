@@ -133,3 +133,33 @@ test('no route returns UPSTREAM error text to the client', () => {
       `${r.path} returns a raw error message to the caller (A.8.28)`)
   }
 })
+
+/**
+ * Regulation 10 item 6 — "was the access approved or denied" (also ASVS V16.3.2).
+ *
+ * The audit trail recorded successes only: eight privileged writes, all of them
+ * things that worked. Every 403 returned in silence. These assert that the
+ * central refusal points record the attempt, so that the property cannot be
+ * quietly removed later by someone simplifying a guard.
+ */
+test('refused access is recorded, not returned in silence', () => {
+  const guards = readFileSync(join(API_DIR, '_lib/guards.js'), 'utf8')
+  assert.match(guards, /writeDenial\([\s\S]{0,200}reason:\s*'not_owner'/,
+    'a non-owner reaching an admin route is refused without being recorded')
+  assert.match(guards, /writeDenial\([\s\S]{0,200}reason:\s*'mfa_required'/,
+    'a session refused for missing MFA step-up is not recorded')
+
+  const inbound = routes.find(r => r.path === 'inbound.js')
+  assert.match(inbound.src, /writeDenial\([\s\S]{0,200}reason:\s*'bad_secret'/,
+    'a bad inbound secret - an unauthenticated probe - is not recorded')
+})
+
+test('a denial record cannot be used to write attacker-controlled text', () => {
+  const audit = readFileSync(join(API_DIR, '_lib/audit.js'), 'utf8')
+  // Only the pathname is taken from the request; a query string would carry
+  // caller-supplied values straight into the log.
+  assert.match(audit, /new URL\(request\.url\)\.pathname/,
+    'writeDenial must record the path only, never the query string')
+  assert.ok(!/searchParams|request\.url\s*\}/.test(audit),
+    'writeDenial must not record caller-supplied query values')
+})
