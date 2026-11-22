@@ -51,15 +51,80 @@ function isBlockedHost(hostname) {
 
   if (IPV4_RE.test(h)) return isBlockedIPv4(h)
 
-  if (v6 || h.includes(':')) {
-    // IPv6 literal — block loopback, ULA (fc00::/7), link-local (fe80::/10),
-    // unspecified, and IPv4-mapped private addresses.
-    if (h === '::1' || h === '::') return true
-    if (h.startsWith('fc') || h.startsWith('fd')) return true   // fc00::/7
-    if (h.startsWith('fe8') || h.startsWith('fe9') || h.startsWith('fea') || h.startsWith('feb')) return true // fe80::/10
-    const mapped = h.match(/::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i)
-    if (mapped && isBlockedIPv4(mapped[1])) return true
-    return false
+  if (v6 || h.includes(':')) return isBlockedIPv6(h)
+  return false
+}
+
+/**
+ * Expand an IPv6 literal to its 8 hextets, or null if it is not one.
+ *
+ * Needed because matching on the TEXT of an address does not work: `new URL()`
+ * normalises before we ever see the hostname, so `[::ffff:127.0.0.1]` arrives
+ * as `::ffff:7f00:1`. A check written against the dotted-quad spelling can
+ * therefore never fire — see isBlockedIPv6 below.
+ */
+function expandIPv6(h) {
+  let str = String(h || '').toLowerCase()
+  if (!str.includes(':')) return null
+
+  // A trailing dotted quad (::ffff:127.0.0.1) becomes two hextets.
+  const tail = str.match(/(\d{1,3}(?:\.\d{1,3}){3})$/)
+  if (tail) {
+    const o = tail[1].split('.').map(Number)
+    if (o.some(n => !Number.isInteger(n) || n < 0 || n > 255)) return null
+    const hex = [((o[0] << 8) | o[1]).toString(16), ((o[2] << 8) | o[3]).toString(16)]
+    str = str.slice(0, -tail[1].length) + hex.join(':')
+  }
+
+  const halves = str.split('::')
+  if (halves.length > 2) return null
+  const head = halves[0] ? halves[0].split(':').filter(Boolean) : []
+  const back = halves.length === 2 ? (halves[1] ? halves[1].split(':').filter(Boolean) : []) : null
+
+  let parts
+  if (back === null) {
+    parts = head
+  } else {
+    const fill = 8 - head.length - back.length
+    if (fill < 0) return null
+    parts = [...head, ...Array(fill).fill('0'), ...back]
+  }
+  if (parts.length !== 8) return null
+
+  const out = parts.map(p => parseInt(p || '0', 16))
+  return out.some(n => !Number.isInteger(n) || n < 0 || n > 0xffff) ? null : out
+}
+
+/** Dotted quad from the last two hextets of an embedded-IPv4 address. */
+const embeddedV4 = (g) =>
+  `${g[6] >> 8}.${g[6] & 0xff}.${g[7] >> 8}.${g[7] & 0xff}`
+
+/**
+ * Block an IPv6 literal that resolves anywhere internal.
+ *
+ * Covers loopback and unspecified, ULA (fc00::/7), link-local (fe80::/10), and
+ * — the case the previous string match silently missed — every address that
+ * CARRIES an IPv4 address inside it: IPv4-mapped (::ffff:a.b.c.d),
+ * IPv4-compatible (::a.b.c.d) and NAT64 (64:ff9b::/96). Each of those is just a
+ * second spelling of an IPv4 address, so each gets the IPv4 verdict.
+ */
+function isBlockedIPv6(h) {
+  const g = expandIPv6(h)
+  if (!g) return true                                   // unparseable → refuse
+
+  const allZero = g.slice(0, 7).every(x => x === 0)
+  if (allZero && (g[7] === 0 || g[7] === 1)) return true // :: and ::1
+
+  if ((g[0] & 0xfe00) === 0xfc00) return true            // fc00::/7  ULA
+  if ((g[0] & 0xffc0) === 0xfe80) return true            // fe80::/10 link-local
+
+  // ::ffff:a.b.c.d  — IPv4-mapped
+  if (g.slice(0, 5).every(x => x === 0) && g[5] === 0xffff) return isBlockedIPv4(embeddedV4(g))
+  // ::a.b.c.d       — IPv4-compatible (deprecated, still routable text)
+  if (g.slice(0, 6).every(x => x === 0)) return isBlockedIPv4(embeddedV4(g))
+  // 64:ff9b::/96    — NAT64
+  if (g[0] === 0x64 && g[1] === 0xff9b && g.slice(2, 6).every(x => x === 0)) {
+    return isBlockedIPv4(embeddedV4(g))
   }
   return false
 }
