@@ -17,8 +17,10 @@ const head = { padding: '15px 20px', borderBottom: '1px solid var(--border)', ba
 /**
  * InboundMailCard — the customer's personal inbound address (client request #7).
  * They forward supplier emails to it; each attachment arrives as a pending
- * receipt. Pairs with the Gmail/Outlook connect card but needs no OAuth — just a
- * one-time forwarding rule in the customer's own mailbox.
+ * receipt. Needs no OAuth and holds no credential for the customer's mailbox —
+ * just a one-time forwarding rule they set on their own side. (It used to sit
+ * beside a Gmail/Outlook connect card; that channel was retired on 17.11.2026,
+ * and this is now the only way receipts arrive by mail.)
  */
 export default function InboundMailCard() {
   const [info, setInfo] = useState(null)   // { alias, domain, address }
