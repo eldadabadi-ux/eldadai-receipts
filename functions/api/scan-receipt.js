@@ -11,7 +11,7 @@
  */
 
 import { requireMember, wrapAuthErrors } from './_lib/auth.js'
-import { extractReceipt, getSupabaseUrl } from './_lib/extractReceipt.js'
+import { extractReceipt, getSupabaseUrl, MAX_PAGES } from './_lib/extractReceipt.js'
 import { resolveSupplier } from './_lib/supplierResolve.js'
 import { checkRateLimit, rateLimitedResponse } from './_lib/rateLimit.js'
 import { errorResponse } from './_lib/response.js'
@@ -73,6 +73,11 @@ export const onRequestPost = wrapAuthErrors(async (context) => {
     // the browser gets a stable code + generic message + that id only.
     if (err?.code === 'AI_FAILED') return errorResponse('עיבוד ה-AI נכשל — נסה שוב', 502, { code: 'ai_failed', err, headers: CORS })
     if (err?.code === 'BAD_INPUT') return errorResponse('הקלט אינו תקין', 400, { code: 'bad_input', err, headers: CORS })
+    // Input ceilings (A.8.12) — a 4xx so the client shows the real reason
+    // instead of a generic failure the user would just retry.
+    if (err?.code === 'TOO_MANY_PAGES') return errorResponse(`ניתן לסרוק עד ${MAX_PAGES} עמודים במסמך אחד`, 413, { code: 'too_many_pages', headers: CORS })
+    if (err?.code === 'TOO_LARGE')      return errorResponse('אחד העמודים גדול מ-10MB', 413, { code: 'too_large', headers: CORS })
+    if (err?.code === 'BAD_MIME')       return errorResponse('סוג הקובץ אינו נתמך (JPG, PNG, WEBP, HEIC או PDF)', 415, { code: 'bad_mime', headers: CORS })
     return errorResponse('שגיאת עיבוד', 500, { code: 'processing_error', err, headers: CORS })
   }
 })
