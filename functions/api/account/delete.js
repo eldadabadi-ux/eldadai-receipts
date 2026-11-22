@@ -40,6 +40,10 @@ const MAX_OBJECTS = 20000      // hard stop; a runaway prefix must not hang the 
  * child's delete a no-op that still reports 200, which would hide a missing
  * cascade instead of surfacing it.
  */
+// NOTE: `mail_connections` is absent on purpose — the Gmail/Outlook OAuth
+// channel and its table were retired on 17.11.2026
+// (supabase_remove_mail_scan.sql). Receipts now arrive through the forwarding
+// alias instead, which stores no mailbox credential at all.
 const USER_TABLES = [
   'sales_lines',
   'sales_days',
@@ -51,7 +55,6 @@ const USER_TABLES = [
   'receipt_books',
   'categories',
   'suppliers',
-  'mail_connections',
   'user_settings',
   'memberships',
 ]
