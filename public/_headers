@@ -4,6 +4,8 @@
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(self), microphone=(), geolocation=(), payment=(), browsing-topics=()
+  Cross-Origin-Opener-Policy: same-origin-allow-popups
+  Cross-Origin-Resource-Policy: same-origin
   Content-Security-Policy: default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; manifest-src 'self'; img-src 'self' data: blob: https://dsoucojqjrodxozcbicf.supabase.co; font-src 'self' data: https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; script-src 'self' 'wasm-unsafe-eval' blob: https://cdn.jsdelivr.net; worker-src 'self' blob:; connect-src 'self' https://dsoucojqjrodxozcbicf.supabase.co https://cdn.jsdelivr.net https://tessdata.projectnaptha.com; upgrade-insecure-requests
 
 /version.json
@@ -18,3 +20,19 @@
 
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
+
+# ── CSP exceptions, and why they are still there ────────────────────────────
+# script-src https://cdn.jsdelivr.net
+#   tesseract.js (the on-device OCR fallback — the path where receipt images
+#   never leave the phone) fetches its worker from
+#   cdn.jsdelivr.net/npm/tesseract.js@<version>/dist/worker.min.js. Dropping the
+#   origin disables local OCR and forces every scan through Gemini, which is the
+#   worse privacy outcome. Closing it properly means vendoring the worker and
+#   the language data into /public and repointing workerPath/corePath/langPath —
+#   a change that must be verified in a real browser, so it is tracked rather
+#   than guessed at here.
+# script-src blob:
+#   Same dependency: the worker is instantiated from a blob URL.
+# style-src 'unsafe-inline'
+#   Tailwind's runtime style injection. Scripts are NOT inline-permitted, which
+#   is the half that matters for XSS.
