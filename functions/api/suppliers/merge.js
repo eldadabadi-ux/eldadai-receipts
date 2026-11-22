@@ -23,11 +23,9 @@ import { createSupplier, loadSupplierCatalogue } from '../_lib/supplierResolve.j
 import { clusterVendors, normalizeVendor, matchVendor, isJunkVendor } from '../_lib/supplierMatch.js'
 import { errorResponse } from '../_lib/response.js'
 import { writeAudit } from '../_lib/audit.js'
+import { corsHeaders, preflight } from '../_lib/cors.js'
 
-const cors = (request, env) => ({
-  'Access-Control-Allow-Origin': env.ALLOWED_ORIGIN || (request.headers.get('origin') || '').trim() || '*',
-  'Content-Type': 'application/json',
-})
+const cors = (request, env) => corsHeaders(request, env)
 const sbh = (key) => ({ apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' })
 
 /**
@@ -88,7 +86,7 @@ export function selectGroupReceiptIds(receipts, { stored = [], spellings = [], d
 
 export async function onRequestOptions({ request, env }) {
   return new Response(null, { status: 204, headers: {
-    'Access-Control-Allow-Origin': env.ALLOWED_ORIGIN || (request.headers.get('origin') || '').trim() || '*',
+    'Access-Control-Allow-Origin': corsHeaders(request, env)['Access-Control-Allow-Origin'],
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   } })

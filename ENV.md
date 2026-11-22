@@ -37,8 +37,8 @@ and in local `.env` / `.env.test` files that are git-ignored.
 | `GEMINI_FALLBACK_MODEL` | `extractReceipt.js` | optional fallback-model override |
 | `INBOUND_SECRET` | `functions/api/inbound.js` + the email Worker | shared secret the inbound email Worker must present (set the SAME value on both) |
 | `INBOUND_DOMAIN` | `functions/api/inbound/alias.js` | the domain personal inbound addresses live on (`eldadai.co.il`); until set, the address is reserved but inactive |
-| `ALLOWED_ORIGIN` | `functions/api/_lib/response.js` | CORS allow-list |
-| `SUPERADMIN_EMAIL` | `functions/api/admin/onboard.js`, `audit.js` | platform-owner account |
+| `ALLOWED_ORIGIN` | `functions/api/_lib/cors.js` | OPTIONAL extra CORS origins, comma-separated. The canonical origin, localhost and `*.eldadai-receipts.pages.dev` are allowed without it; an unlisted origin is refused, never echoed back |
+| `SUPERADMIN_EMAIL` | `functions/api/_lib/guards.js` (used by every `admin/*` route) | platform-owner account |
 
 ## Bindings (Cloudflare, not env vars)
 

@@ -14,6 +14,7 @@
 import { requireUser, wrapAuthErrors } from './_lib/auth.js'
 import { classifyReceipt } from './_lib/classifyReceipt.js'
 import { checkRateLimit, rateLimitedResponse } from './_lib/rateLimit.js'
+import { corsHeaders, preflight } from './_lib/cors.js'
 import { errorResponse } from './_lib/response.js'
 
 const GEMINI_PRIMARY  = 'gemini-2.5-flash'
@@ -22,18 +23,7 @@ const GEMINI_FALLBACK = 'gemini-flash-latest'
 function getSupabaseUrl(env) {
   return env.VITE_SUPABASE_URL || env.SUPABASE_URL || 'https://dsoucojqjrodxozcbicf.supabase.co'
 }
-function corsHeaders(request, env) {
-  const origin = (request.headers.get('origin') || '').trim()
-  return { 'Access-Control-Allow-Origin': env.ALLOWED_ORIGIN || origin || '*', 'Content-Type': 'application/json' }
-}
-export async function onRequestOptions(context) {
-  const origin = (context.request.headers.get('origin') || '').trim()
-  return new Response(null, { status: 204, headers: {
-    'Access-Control-Allow-Origin': context.env.ALLOWED_ORIGIN || origin || '*',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  } })
-}
+export const onRequestOptions = (context) => preflight(context.request, context.env, 'POST, OPTIONS')
 
 export const onRequestPost = wrapAuthErrors(async (context) => {
   const user = await requireUser(context.request, context.env)

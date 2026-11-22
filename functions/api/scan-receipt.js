@@ -15,25 +15,9 @@ import { extractReceipt, getSupabaseUrl } from './_lib/extractReceipt.js'
 import { resolveSupplier } from './_lib/supplierResolve.js'
 import { checkRateLimit, rateLimitedResponse } from './_lib/rateLimit.js'
 import { errorResponse } from './_lib/response.js'
+import { corsHeaders, preflight } from './_lib/cors.js'
 
-function corsHeaders(request, env) {
-  const origin  = (request.headers.get('origin') || '').trim()
-  const allowed = env.ALLOWED_ORIGIN || origin || '*'
-  return { 'Access-Control-Allow-Origin': allowed, 'Content-Type': 'application/json' }
-}
-
-export async function onRequestOptions(context) {
-  const origin  = (context.request.headers.get('origin') || '').trim()
-  const allowed = context.env.ALLOWED_ORIGIN || origin || '*'
-  return new Response(null, {
-    status: 204,
-    headers: {
-      'Access-Control-Allow-Origin': allowed,
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    },
-  })
-}
+export const onRequestOptions = (context) => preflight(context.request, context.env, 'POST, OPTIONS')
 
 export const onRequestPost = wrapAuthErrors(async (context) => {
   const user = await requireMember(context.request, context.env)
