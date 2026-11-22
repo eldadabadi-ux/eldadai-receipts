@@ -15,40 +15,17 @@
  *          one clears the override back to default, so "what he bought" and
  *          "what he can use" cannot drift apart.
  */
-import { requireUser, wrapAuthErrors } from '../_lib/auth.js'
+import { wrapAuthErrors } from '../_lib/auth.js'
+import { guardOwner } from '../_lib/guards.js'
 import { writeAudit } from '../_lib/audit.js'
 import { MODULE_FLAGS, resolveFlags } from '../_lib/flags.js'
 
-const SUPERADMIN_FALLBACK = 'eldadabadi@gmail.com'
-const sbUrl = (env) => env.VITE_SUPABASE_URL || env.SUPABASE_URL || 'https://dsoucojqjrodxozcbicf.supabase.co'
 const cors = { 'Content-Type': 'application/json' }
 
 const PAYMENT_METHODS = ['bank_transfer', 'standing_order', 'bit', 'credit_card', 'check', 'other']
 const STATUSES = ['active', 'trial', 'paused', 'churned']
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
-/** Owner + MFA step-up guard (mirrors /api/admin/flags). */
-async function guardOwner(context) {
-  const caller = await requireUser(context.request, context.env)
-  const superadmin = (context.env.SUPERADMIN_EMAIL || SUPERADMIN_FALLBACK).toLowerCase()
-  if ((caller.email || '').toLowerCase() !== superadmin) {
-    return { res: Response.json({ error: 'forbidden' }, { status: 403, headers: cors }) }
-  }
-  const key = context.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!key) return { res: Response.json({ error: 'server_config' }, { status: 500, headers: cors }) }
-  const url = sbUrl(context.env)
-  try {
-    const fRes = await fetch(`${url}/auth/v1/admin/users/${caller.user_id}`, { headers: { apikey: key, Authorization: `Bearer ${key}` } })
-    if (fRes.ok) {
-      const factors = (await fRes.json())?.factors || []
-      const hasTotp = factors.some(f => f.status === 'verified' && (f.factor_type === 'totp' || f.type === 'totp'))
-      if (hasTotp && caller.aal !== 'aal2') {
-        return { res: Response.json({ error: 'mfa_required', message: 'נדרש אימות דו-שלבי (2FA).' }, { status: 403, headers: cors }) }
-      }
-    }
-  } catch { /* factor lookup failed → don't hard-block */ }
-  return { caller, key, url, headers: { apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' } }
-}
 
 export const onRequestGet = wrapAuthErrors(async (context) => {
   const g = await guardOwner(context)
