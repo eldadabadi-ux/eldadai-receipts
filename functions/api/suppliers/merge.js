@@ -24,6 +24,7 @@ import { clusterVendors, normalizeVendor, matchVendor, isJunkVendor } from '../_
 import { errorResponse } from '../_lib/response.js'
 import { writeAudit } from '../_lib/audit.js'
 import { corsHeaders, preflight } from '../_lib/cors.js'
+import { checkRateLimit, rateLimitedResponse } from '../_lib/rateLimit.js'
 
 const cors = (request, env) => corsHeaders(request, env)
 const sbh = (key) => ({ apikey: key, Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' })
@@ -130,6 +131,8 @@ async function loadVendorRows(url, key, user) {
 
 export const onRequestGet = wrapAuthErrors(async (context) => {
   const user = await requireMember(context.request, context.env)
+  const rl = await checkRateLimit(context.env, `${user.user_id}:sup-merge`, { limit: 20, windowSec: 60 })
+  if (!rl.allowed) return rateLimitedResponse(rl.retryAfter, cors(context.request, context.env))
   const CORS = cors(context.request, context.env)
   const key = context.env.SUPABASE_SERVICE_ROLE_KEY
   const url = getSupabaseUrl(context.env)
@@ -207,6 +210,8 @@ export const onRequestGet = wrapAuthErrors(async (context) => {
 
 export const onRequestPost = wrapAuthErrors(async (context) => {
   const user = await requireMember(context.request, context.env)
+  const rl = await checkRateLimit(context.env, `${user.user_id}:sup-merge`, { limit: 20, windowSec: 60 })
+  if (!rl.allowed) return rateLimitedResponse(rl.retryAfter, cors(context.request, context.env))
   const CORS = cors(context.request, context.env)
   const key = context.env.SUPABASE_SERVICE_ROLE_KEY
   const url = getSupabaseUrl(context.env)

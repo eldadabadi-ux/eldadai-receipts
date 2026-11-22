@@ -16,6 +16,7 @@
  */
 
 import { requireUser } from './auth.js'
+import { checkRateLimit, rateLimitedResponse } from './rateLimit.js'
 
 // Platform owner — configurable via the Cloudflare env (SUPERADMIN_EMAIL); the
 // fallback keeps the console reachable if the var is ever missing.
@@ -46,6 +47,12 @@ export async function guardOwner(context) {
   if (!isSuperadmin(caller.email, context.env)) {
     return { res: Response.json({ error: 'forbidden' }, { status: 403, headers: JSON_HEADERS }) }
   }
+
+  // Throttle the console as a whole (A.8.12). These routes run service-role
+  // writes across every tenant, so the one account that can reach them is also
+  // the one worth grinding with a stolen token.
+  const rl = await checkRateLimit(context.env, `${caller.user_id}:admin`, { limit: 60, windowSec: 60 })
+  if (!rl.allowed) return { res: rateLimitedResponse(rl.retryAfter) }
 
   const key = context.env.SUPABASE_SERVICE_ROLE_KEY
   if (!key) {

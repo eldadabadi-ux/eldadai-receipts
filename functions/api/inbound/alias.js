@@ -10,15 +10,22 @@
 import { requireMember, wrapAuthErrors } from '../_lib/auth.js'
 import { getSupabaseUrl } from '../_lib/extractReceipt.js'
 import { genAlias, inboundAddress } from '../_lib/inbound.js'
+import { checkRateLimit, rateLimitedResponse } from '../_lib/rateLimit.js'
 
 export const onRequestGet = wrapAuthErrors(async ({ request, env }) => {
   const user = await requireMember(request, env)
+
+  // Minting walks a retry loop of service-role writes; cap it so a loop in the
+  // client (or a stolen token) cannot spin it (A.8.12).
+  const rl = await checkRateLimit(env, `${user.user_id}:alias`, { limit: 20, windowSec: 60 })
+  if (!rl.allowed) return rateLimitedResponse(rl.retryAfter)
+
   const url = getSupabaseUrl(env), key = env.SUPABASE_SERVICE_ROLE_KEY
   const h = { apikey: key, Authorization: `Bearer ${key}` }
   const domain = env.INBOUND_DOMAIN || null
 
   const existing = await fetch(
-    `${url}/rest/v1/user_settings?user_id=eq.${user.user_id}&select=inbound_alias,business_name&limit=1`,
+    `${url}/rest/v1/user_settings?user_id=eq.${encodeURIComponent(user.user_id)}&select=inbound_alias,business_name&limit=1`,
     { headers: h }).then(r => r.ok ? r.json() : []).catch(() => [])
   const row = existing?.[0]
 
@@ -35,7 +42,7 @@ export const onRequestGet = wrapAuthErrors(async ({ request, env }) => {
     let res
     if (row) {
       // A settings row exists — claim the alias only while it is still null.
-      res = await fetch(`${url}/rest/v1/user_settings?user_id=eq.${user.user_id}&inbound_alias=is.null`,
+      res = await fetch(`${url}/rest/v1/user_settings?user_id=eq.${encodeURIComponent(user.user_id)}&inbound_alias=is.null`,
         { method: 'PATCH', headers: common, body: JSON.stringify({ inbound_alias: candidate }) })
     } else {
       res = await fetch(`${url}/rest/v1/user_settings`,
@@ -48,7 +55,7 @@ export const onRequestGet = wrapAuthErrors(async ({ request, env }) => {
     else {
       // PATCH matched no row (another request set it first) → re-read and use it.
       const reread = await fetch(
-        `${url}/rest/v1/user_settings?user_id=eq.${user.user_id}&select=inbound_alias&limit=1`,
+        `${url}/rest/v1/user_settings?user_id=eq.${encodeURIComponent(user.user_id)}&select=inbound_alias&limit=1`,
         { headers: h }).then(r => r.ok ? r.json() : []).catch(() => [])
       if (reread?.[0]?.inbound_alias) alias = reread[0].inbound_alias
     }

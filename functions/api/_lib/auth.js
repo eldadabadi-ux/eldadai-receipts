@@ -1,6 +1,9 @@
 /**
- * functions/api/_lib/auth.js — minimal auth helpers.
- * Only requireUser() is needed — single-user app, no roles or tenants.
+ * functions/api/_lib/auth.js — authentication helpers.
+ *
+ * requireUser() verifies the bearer token against Supabase (signature + expiry
+ * checked there, never locally); requireMember() adds the caller's org_id.
+ * The platform-owner check lives in _lib/guards.js.
  */
 
 // Public values (also present in the frontend bundle) — safe to hardcode as a
@@ -66,7 +69,11 @@ export async function resolveOrgId(userId, env) {
   if (!sk || !userId) return null
   const url = env.VITE_SUPABASE_URL || env.SUPABASE_URL || FALLBACK_SUPABASE_URL
   try {
-    const res = await fetch(`${url}/rest/v1/memberships?user_id=eq.${userId}&select=org_id&limit=1`, {
+    // order=created_at.asc — `limit=1` with no ORDER BY lets Postgres return any
+    // row, so a user in two organizations could be scoped to a DIFFERENT org
+    // between two requests. The oldest membership is the stable choice.
+    const res = await fetch(
+      `${url}/rest/v1/memberships?user_id=eq.${encodeURIComponent(userId)}&select=org_id&order=created_at.asc&limit=1`, {
       headers: { apikey: sk, Authorization: `Bearer ${sk}` },
     })
     if (!res.ok) return null

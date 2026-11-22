@@ -26,6 +26,7 @@
 
 import { requireUser, wrapAuthErrors } from '../_lib/auth.js'
 import { writeAudit } from '../_lib/audit.js'
+import { checkRateLimit, rateLimitedResponse } from '../_lib/rateLimit.js'
 
 const RECEIPTS_BUCKET = 'receipts'
 const LIST_PAGE = 100          // Storage list page size
@@ -112,6 +113,12 @@ export const onRequestPost = wrapAuthErrors(async (context) => {
       { status: 500 },
     )
   }
+
+  // Erasure is irreversible and expensive (full storage walk). A handful an
+  // hour is far more than a real person needs and well under what a stolen
+  // token could use to grind the service-role key.
+  const rl = await checkRateLimit(context.env, `${user.user_id}:acct-del`, { limit: 5, windowSec: 3600 })
+  if (!rl.allowed) return rateLimitedResponse(rl.retryAfter)
 
   const uid = user.user_id
   const qid = encodeURIComponent(uid)

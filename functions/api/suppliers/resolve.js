@@ -18,6 +18,7 @@ import { normalizeVendor } from '../_lib/supplierMatch.js'
 import { errorResponse } from '../_lib/response.js'
 import { writeAudit } from '../_lib/audit.js'
 import { corsHeaders, preflight } from '../_lib/cors.js'
+import { checkRateLimit, rateLimitedResponse } from '../_lib/rateLimit.js'
 
 // Every client-supplied value is encoded before it enters a PostgREST query
 // string: a raw '#' would truncate the URL and drop the tenant predicate from a
@@ -32,6 +33,8 @@ export const onRequestOptions = ({ request, env }) => preflight(request, env, 'P
 
 export const onRequestPost = wrapAuthErrors(async (context) => {
   const user = await requireMember(context.request, context.env)
+  const rl = await checkRateLimit(context.env, `${user.user_id}:sup-resolve`, { limit: 60, windowSec: 60 })
+  if (!rl.allowed) return rateLimitedResponse(rl.retryAfter, cors(context.request, context.env))
   const CORS = cors(context.request, context.env)
   const key = context.env.SUPABASE_SERVICE_ROLE_KEY
   const url = getSupabaseUrl(context.env)
