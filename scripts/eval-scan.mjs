@@ -7,6 +7,7 @@
  *   npm run eval:scan -- --compare=gemini-3-pro
  *                                              # run both and diff them field by field
  *   npm run eval:scan -- --render-only         # just write the images, call nothing
+ *   npm run eval:scan -- --verbose             # print what the model returned for each miss
  *
  * Needs GEMINI_API_KEY (put it in .env.test) and `npx playwright install chromium`
  * once, for rendering. Costs one model call per fixture per model.
@@ -92,6 +93,11 @@ async function runModel(model) {
     const pct = Math.round((r.score / r.max) * 100)
     const mark = r.score === r.max ? c.g('✓') : pct >= 70 ? c.y('~') : c.r('✗')
     console.log(`  ${mark} ${fx.id.padEnd(24)} ${String(pct).padStart(3)}%  ${r.failures.map(f => f.name).join(', ')}`)
+    // --verbose prints WHAT the model actually returned. Without it a failing
+    // field is a name with no lead; with it the prompt fix is usually obvious.
+    if (HAS('verbose')) for (const f of r.failures) {
+      if (f.detail) console.log(c.d(`        ${f.name}: ${f.detail}`))
+    }
     if (got._error) console.log(c.r(`      error: ${got._error}`))
     await new Promise(r => setTimeout(r, 1200))     // stay under the free-tier rate limit
   }

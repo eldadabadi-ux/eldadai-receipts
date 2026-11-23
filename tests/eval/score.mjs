@@ -66,7 +66,15 @@ export function scoreOne(fx, got) {
     fields.push(field('doc_number', ok, 1, ok ? '' : `got "${got?.doc_number ?? ''}" want "${want.doc_number}"`))
   }
   if (want.doc_refs) {
-    const g = (got?.doc_refs || []).map(digits).sort()
+    // doc_refs are OBJECTS ({ note_number, note_date, amount }) — see the
+    // extraction prompt. Mapping digits() straight over them stringified each
+    // one to "[object Object]", which has no digits, so every reference scored
+    // as empty and this field read 0/1 while the model was in fact returning
+    // all three note numbers correctly. The scorer decides whether a model
+    // change is an improvement, so a blind spot here is worse than a bug in
+    // the thing it grades.
+    const refNum = (r) => digits(typeof r === 'object' && r !== null ? r.note_number : r)
+    const g = (got?.doc_refs || []).map(refNum).sort()
     const w = want.doc_refs.map(digits).sort()
     fields.push(field('doc_refs', JSON.stringify(g) === JSON.stringify(w), 2,
       `got [${g}] want [${w}]`))
