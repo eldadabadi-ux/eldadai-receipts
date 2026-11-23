@@ -25,6 +25,7 @@ import { errorResponse } from './_lib/response.js'
 import { getSupabaseUrl } from './_lib/extractReceipt.js'
 import { TOOL_DEFS, runTool, buildOrientation } from './_lib/botTools.js'
 import { loadFlags } from './_lib/flags.js'
+import { corsHeaders, preflight } from './_lib/cors.js'
 
 // Model is env-overridable (like GEMINI_MODEL) so it can be upgraded or rolled
 // back without a deploy; CHAT_MODEL in the Cloudflare env wins.
@@ -32,20 +33,7 @@ const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-4-6'
 const MAX_TOKENS   = 4096
 const MAX_ROUNDS   = 8     // tool-use turns before we stop and answer with what we have
 
-function corsHeaders(request, env) {
-  const origin  = (request.headers.get('origin') || '').trim()
-  const allowed = env.ALLOWED_ORIGIN || origin || '*'
-  return { 'Access-Control-Allow-Origin': allowed, 'Content-Type': 'application/json' }
-}
-export async function onRequestOptions(context) {
-  const origin  = (context.request.headers.get('origin') || '').trim()
-  const allowed = context.env.ALLOWED_ORIGIN || origin || '*'
-  return new Response(null, { status: 204, headers: {
-    'Access-Control-Allow-Origin': allowed,
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  } })
-}
+export const onRequestOptions = (context) => preflight(context.request, context.env, 'POST, OPTIONS')
 
 function buildSystemPrompt({ orientation, vatRate, showWithVat, bizName }) {
   return `אתה "העוזר החכם" של ${bizName} — מערכת לניהול קבלות והוצאות.

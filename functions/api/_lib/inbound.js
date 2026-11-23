@@ -8,6 +8,8 @@
  * to an alias, which attachments are worth OCR-ing, and how a fresh alias is minted.
  */
 
+import { verifyFileType, prefixFromBase64 } from './fileType.js'
+
 const ALIAS_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 /** Attachment types the OCR pipeline can read. */
@@ -42,6 +44,11 @@ export function pickAttachments(attachments) {
     if (!OCR_MIME_RE.test(mimeType) || !b64) continue
     // base64 length → byte count (4 chars ≈ 3 bytes); cheap size guard.
     if (Math.floor(b64.length * 3 / 4) > MAX_ATTACH_BYTES) continue
+    // A MIME header on an email part is written by the sender, so it is a claim
+    // like any other. Parts whose bytes disagree are DROPPED rather than
+    // refused: one odd attachment must not reject a message that also carries a
+    // real receipt (ASVS V5.2.2).
+    if (!verifyFileType(prefixFromBase64(b64), mimeType).ok) continue
     out.push({ filename: String(a?.filename || a?.name || 'attachment').slice(0, 200), mimeType, b64 })
   }
   return out
@@ -52,12 +59,41 @@ const slugify = (s) =>
     .replace(/^-+|-+$/g, '').toLowerCase().slice(0, 24)
 
 /**
+ * Cryptographically random base36 suffix.
+ *
+ * WHY NOT Math.random(): the alias IS the credential for this channel. Anyone
+ * who knows alias@<domain> can mail it and have the attachments ingested into
+ * that tenant's books — there is no second factor, because an email channel
+ * cannot carry one. The readable half of the alias is the business name, so the
+ * suffix is the ONLY thing standing between a guess and writing into another
+ * business's account. V8's Math.random() is xorshift128+: fast, uniform, and
+ * state-recoverable from a handful of outputs, which is exactly the wrong
+ * property for a value that must stay unguessable.
+ *
+ * 10 chars of base36 is ~51 bits, up from the previous ~31.
+ */
+const SUFFIX_CHARS = 10
+function randomSuffix() {
+  const bytes = new Uint8Array(SUFFIX_CHARS)
+  crypto.getRandomValues(bytes)
+  // 0-25 -> a-z, 26-35 -> 0-9. The 36-value modulo of 256 is very slightly
+  // biased (256 = 7*36 + 4); irrelevant at this size, and noted so the next
+  // reader does not have to work it out.
+  let out = ''
+  for (const b of bytes) {
+    const v = b % 36
+    out += v < 26 ? String.fromCharCode(97 + v) : String(v - 26)
+  }
+  return out
+}
+
+/**
  * Mint a new alias. A readable slug of the business name (ASCII only — a Hebrew
  * name slugs to nothing, so fall back to "inbox") plus a random suffix for
- * uniqueness. `rand` is injected so the result is testable.
+ * uniqueness AND unguessability. `rand` is injected so the result is testable.
  */
 export function genAlias(businessName, rand) {
-  const r = (rand || (() => Math.random().toString(36).slice(2, 8)))()
+  const r = (rand || randomSuffix)()
   const asciiSlug = slugify(businessName).replace(/[^a-z0-9-]/g, '')
   const head = asciiSlug && /[a-z0-9]/.test(asciiSlug) ? asciiSlug : 'inbox'
   return `${head}-${r}`.replace(/-+/g, '-')

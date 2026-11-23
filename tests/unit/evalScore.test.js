@@ -145,3 +145,43 @@ test('per-field accuracy is reported, not just a total', () => {
     assert.ok(names.includes(n), `missing field report: ${n}`)
   }
 })
+
+/**
+ * Regression: doc_refs arrive as objects, not strings.
+ *
+ * The scorer mapped digits() over them directly, so each one stringified to
+ * "[object Object]", lost every digit, and the field scored 0/1 while the model
+ * was returning all three note numbers. The eval exists to decide whether a
+ * model change is an improvement — a blind spot in it is worse than a bug in
+ * what it grades, because it silently devalues correct output.
+ */
+test('doc_refs are read from note_number, not from the object', () => {
+  const fx = { doc: { items: [] }, expect: { doc_refs: ['45871', '45902', '46011'] } }
+  const got = {
+    doc_refs: [
+      { note_number: '45871', note_date: '2026-07-03', amount: 1250.4 },
+      { note_number: '45902', note_date: '2026-07-14', amount: 980.15 },
+      { note_number: '46011', note_date: '2026-07-28', amount: 1442.3 },
+    ],
+  }
+  const r = scoreOne(fx, got)
+  const f = r.fields.find(x => x.name === 'doc_refs')
+  assert.ok(f.ok, `doc_refs should pass, got detail: ${f.detail}`)
+})
+
+test('doc_refs still compare by digits, and order does not matter', () => {
+  const fx = { doc: { items: [] }, expect: { doc_refs: ['123', '456'] } }
+  const got = { doc_refs: [{ note_number: 'ת. 00456' }, { note_number: '#123' }] }
+  assert.ok(scoreOne(fx, got).fields.find(x => x.name === 'doc_refs').ok)
+})
+
+test('a genuinely missing doc_ref still fails', () => {
+  const fx = { doc: { items: [] }, expect: { doc_refs: ['1', '2'] } }
+  const got = { doc_refs: [{ note_number: '1' }] }
+  assert.ok(!scoreOne(fx, got).fields.find(x => x.name === 'doc_refs').ok)
+})
+
+test('plain-string doc_refs are still supported', () => {
+  const fx = { doc: { items: [] }, expect: { doc_refs: ['77'] } }
+  assert.ok(scoreOne(fx, { doc_refs: ['77'] }).fields.find(x => x.name === 'doc_refs').ok)
+})

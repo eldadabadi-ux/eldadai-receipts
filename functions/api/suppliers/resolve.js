@@ -17,27 +17,24 @@ import { createSupplier, learnAlias } from '../_lib/supplierResolve.js'
 import { normalizeVendor } from '../_lib/supplierMatch.js'
 import { errorResponse } from '../_lib/response.js'
 import { writeAudit } from '../_lib/audit.js'
+import { corsHeaders, preflight } from '../_lib/cors.js'
+import { checkRateLimit, rateLimitedResponse } from '../_lib/rateLimit.js'
 
 // Every client-supplied value is encoded before it enters a PostgREST query
 // string: a raw '#' would truncate the URL and drop the tenant predicate from a
 // service-role request (guardrail 3).
 const q = (v) => encodeURIComponent(String(v ?? ''))
 
-const cors = (request, env) => ({
-  'Access-Control-Allow-Origin': env.ALLOWED_ORIGIN || (request.headers.get('origin') || '').trim() || '*',
-  'Content-Type': 'application/json',
-})
 
-export async function onRequestOptions({ request, env }) {
-  return new Response(null, { status: 204, headers: {
-    'Access-Control-Allow-Origin': env.ALLOWED_ORIGIN || (request.headers.get('origin') || '').trim() || '*',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-  } })
-}
+
+const cors = (request, env) => corsHeaders(request, env)
+
+export const onRequestOptions = ({ request, env }) => preflight(request, env, 'POST, OPTIONS')
 
 export const onRequestPost = wrapAuthErrors(async (context) => {
   const user = await requireMember(context.request, context.env)
+  const rl = await checkRateLimit(context.env, `${user.user_id}:sup-resolve`, { limit: 60, windowSec: 60 })
+  if (!rl.allowed) return rateLimitedResponse(rl.retryAfter, cors(context.request, context.env))
   const CORS = cors(context.request, context.env)
   const key = context.env.SUPABASE_SERVICE_ROLE_KEY
   const url = getSupabaseUrl(context.env)

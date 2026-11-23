@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "npm run test:unit && npm run test:security",
+    "test": "npm run test:unit && npm run test:security:offline && npm run test:security",
     "test:security": "node --test tests/security/rls.pentest.test.js",
     "deploy": "npm run build && wrangler pages deploy dist --project-name eldadai-receipts --branch=master --commit-dirty=true",
     "deploy:manual": "npm run build && wrangler pages deploy dist --project-name eldadai-receipts --branch=master --commit-dirty=true",
@@ -16,7 +16,12 @@
     "ship": "node scripts/ship.mjs",
     "cleanup": "node scripts/cleanup.mjs",
     "eval:scan": "node --env-file=.env.test scripts/eval-scan.mjs",
-    "migrations": "node --env-file=.env.test scripts/migrations.mjs"
+    "migrations": "node --env-file=.env.test scripts/migrations.mjs",
+    "test:security:offline": "node --test \"tests/security/*.unit.test.js\"",
+    "audit:prod": "npm audit --omit=dev --audit-level=high",
+    "audit:chain": "node --env-file=.env.test scripts/audit-chain-diagnose.cjs",
+    "test:qa": "node --test \"tests/unit/duplicateCheck.test.js\" \"tests/unit/salesMath.test.js\" \"tests/unit/quotes.test.js\" \"tests/unit/reconciliation.test.js\" \"tests/unit/evalScore.test.js\" \"tests/unit/extract.test.js\" \"tests/unit/classify.test.js\" \"tests/unit/installments.test.js\" \"tests/unit/budgets.test.js\"",
+    "sbom": "npm sbom --sbom-format=cyclonedx --omit=dev > docs/sbom.cyclonedx.json"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.0",
@@ -27,7 +32,7 @@
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-hot-toast": "^2.6.0",
-    "react-router-dom": "^7.13.2",
+    "react-router-dom": "^7.18.6",
     "tesseract.js": "^7.0.0",
     "xlsx-js-style": "^1.2.0"
   },

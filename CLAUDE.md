@@ -41,7 +41,10 @@ Every table that holds business data carries BOTH `user_id` and `org_id`, has RL
 alone does not stop a foreign `org_id` on a write). Receipt files live in Storage under `${user_id}/…`
 with matching object policies. `memberships` has no INSERT policy — a user cannot join another org.
 
-`tests/security/rls.pentest.test.js` is the regression net: it provisions two throwaway tenants and
+`tests/security/*.unit.test.js` are the offline half of the net — they need no
+network and run on every push (CORS, input ceilings, the SSRF allowlist, response
+headers, secret hygiene, and the structural rule that no route may exist without a
+guard). `tests/security/rls.pentest.test.js` is the live half: it provisions two throwaway tenants and
 proves neither can read or write the other's receipts, categories, suppliers, aliases or settings, join
 their org, or reach their files. **A new tenant table, or a new endpoint that reads one, requires a test
 here before it ships.**
@@ -65,8 +68,11 @@ connection, and an RPC that runs arbitrary SQL would be a far worse hole than th
 problem it solves. Moving to `supabase db push` is the eventual fix; it needs the
 CLI linked with the database password.
 
-`supabase/migrations/20260609_multi_tenant.sql` was never applied and references
-tables that do not exist (July audit). It is dead — delete it rather than run it.
+`supabase/migrations/20260609_multi_tenant.sql` was deleted (it was never applied
+and referenced tables that do not exist). `supabase_mail_cron.sql` still shows as
+an orphan in the ledger — recorded as applied, no longer in the repo — because the
+mail-scan channel it scheduled was retired on 17.11.2026. That is accurate history,
+not a problem to fix.
 
 ## Known debt (see `docs/ARCHITECTURE-AUDIT-2026.md`)
 - ~~Receipt images are base64 in the DB row~~ — closed (C1): images live in Storage, the list carries no

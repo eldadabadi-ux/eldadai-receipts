@@ -153,8 +153,18 @@ export function pricePerBaseUnit(item) {
   // product name; fall back to the name when the field is absent or unusable.
   const pack = parsePackSize(item.pack_size) || parsePackSize(item.item_name)
 
-  // 1. The line is already measured in mass/volume (or an explicit count).
-  if (lineUnit && !lineUnit.packLike) {
+  // 1. The line is already measured in mass/volume.
+  //
+  // A COUNT unit does not qualify, even though it is explicit. "24 יח'" of
+  // "חלב טרי בקרטון 1 ליטר" is 24 litres, not 24 nameless pieces, and treating
+  // the count as the final answer threw away the pack size in the name — the
+  // exact case this module exists for (see the header). `packLike` only covered
+  // מארז / מגש / קרטון, so a supplier who writes the far more common יח' got
+  // ₪/piece and became incomparable with one who prints ליטר.
+  //
+  // Measurable beats name-derived; name-derived beats a bare count.
+  const measurable = lineUnit && lineUnit.dimension !== 'count'
+  if (measurable) {
     const qBase = quantity * lineUnit.toBase
     if (!(qBase > 0)) return null
     return {

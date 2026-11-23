@@ -1,0 +1,82 @@
+name: Audit chain integrity
+
+# ISO A.8.16 — periodic review of the audit trail.
+#
+# The hash chain broke on 12.11.2026 and was noticed on 22.11. Ten days, and not
+# by monitoring: someone wrote a test that happened to call the verifier. The
+# control was recorded as working in two compliance reports and had never once
+# been run.
+#
+# This is the cheapest possible fix for that, and the point is not the schedule
+# — it is that a broken chain now PUSHES a notification instead of waiting to be
+# discovered. A failed scheduled workflow emails the repository owner; silence
+# means intact.
+#
+# It deliberately does not live in the deploy workflow: the chain can break
+# without anyone deploying, which is exactly what happened.
+
+on:
+  schedule:
+    - cron: '0 6 * * *'        # 06:00 UTC daily
+  workflow_dispatch:            # and on demand, after applying a migration
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    name: Verify the audit hash chain
+    steps:
+      - name: Ask the application
+        env:
+          APP_URL: ${{ vars.APP_URL || 'https://app.eldadai.co.il' }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${CRON_SECRET}" ]; then
+            echo "::error::CRON_SECRET is not set. Add it to the repository secrets"
+            echo "::error::and set the SAME value in the Cloudflare Pages environment."
+            exit 1
+          fi
+
+          # -sS keeps curl quiet but still prints transport errors; the HTTP
+          # status is captured separately so a 503 is read as a verdict rather
+          # than as a failed request.
+          body=$(curl -sS -m 30 \
+                   -H "x-cron-secret: ${CRON_SECRET}" \
+                   -o /tmp/out.json -w '%{http_code}' \
+                   "${APP_URL}/api/admin/chain-check") || {
+            echo "::error::could not reach ${APP_URL}"
+            exit 1
+          }
+
+          echo "HTTP ${body}"
+          cat /tmp/out.json
+          echo
+
+          case "${body}" in
+            200)
+              echo "Audit chain intact."
+              # A verdict that silently skipped most of the table would be worse
+              # than no verdict, so surface the baseline when one is in place.
+              skipped=$(grep -o '"skipped":[0-9]*' /tmp/out.json | cut -d: -f2 || true)
+              if [ -n "${skipped:-}" ] && [ "${skipped}" != "0" ]; then
+                echo "::notice::${skipped} rows sit before the baseline and are not covered by this verdict."
+              fi
+              ;;
+            503)
+              echo "::error::AUDIT CHAIN BROKEN or unverifiable. Investigate before deploying."
+              echo "::error::Run: npm run audit:chain   (prints every failing row and correlates them)"
+              exit 1
+              ;;
+            401|403)
+              echo "::error::chain-check refused the request — CRON_SECRET here does not match Cloudflare."
+              exit 1
+              ;;
+            *)
+              echo "::error::unexpected status ${body} from chain-check"
+              exit 1
+              ;;
+          esac

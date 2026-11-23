@@ -7,7 +7,13 @@ import { extractReceipt, getSupabaseUrl } from './extractReceipt.js'
 import { resolveSupplier } from './supplierResolve.js'
 import { installmentsOf } from './installments.js'
 
-const rnd = () => Math.random().toString(36).slice(2, 10)
+// Storage object names. Guessing one grants nothing — Storage RLS keys on the
+// `${user_id}/` prefix — but a CSPRNG costs the same and removes the collision
+// question entirely.
+const rnd = () => {
+  const b = new Uint8Array(8); crypto.getRandomValues(b)
+  return Array.from(b, x => (x % 36).toString(36)).join('')
+}
 
 // Service-role Supabase REST helpers (the worker/function bypasses RLS).
 export function makeDb(env) {

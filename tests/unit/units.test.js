@@ -175,3 +175,47 @@ test('an unusable pack_size falls back to the product name', () => {
   assert.equal(p.base, 'l')
   assert.equal(p.value, 8)
 })
+
+/**
+ * Regression (23.11.26): a bare count must not out-rank a pack size.
+ *
+ * `packLike` covered only מארז / מגש / קרטון. A supplier writing the far more
+ * common יח' took the step-1 branch, got ₪/piece, and became incomparable with
+ * a supplier who prints ליטר — defeating the purpose of the module for the most
+ * frequent spelling on a real delivery note. Found by the scan eval, where the
+ * base_units field sat at 0/1.
+ */
+test("a line counted in יח' is still repriced from the pack size in its name", () => {
+  const p = pricePerBaseUnit({
+    item_name: 'חלב טרי בקרטון 1 ליטר 3% תנובה', quantity: 24, unit: "יח'", unit_price: 6.21, price: 149.04,
+  })
+  assert.equal(p.base, 'l', "24 יח' of a 1-litre carton is 24 litres, not 24 pieces")
+  assert.equal(p.value, 6.21)
+  assert.equal(p.quantity_base, 24)
+})
+
+test("a fractional pack size under יח' divides correctly", () => {
+  const p = pricePerBaseUnit({
+    item_name: 'יוגורט כד 1.5 ליטר', quantity: 3, unit: "יח'", unit_price: 21.8, price: 65.4,
+  })
+  assert.equal(p.base, 'l')
+  assert.equal(p.quantity_base, 4.5)
+  assert.equal(p.value, 14.53)        // 65.40 / 4.5
+})
+
+test('a measurable unit on the line still wins over anything in the name', () => {
+  // The name mentions a pack size, but the line is already sold by weight.
+  const p = pricePerBaseUnit({
+    item_name: 'קמח שק 1 ק"ג', quantity: 25, unit: 'קג', unit_price: 4, price: 100,
+  })
+  assert.equal(p.base, 'kg')
+  assert.equal(p.quantity_base, 25, 'weight on the line is the truth, not the bag size in the name')
+  assert.equal(p.source, 'unit')
+})
+
+test('a plain counted item with no size in its name is unchanged', () => {
+  const p = pricePerBaseUnit({ item_name: 'לחם פרוס', quantity: 5, unit: "יח'", unit_price: 8, price: 40 })
+  assert.equal(p.base, 'unit')
+  assert.equal(p.value, 8)
+  assert.equal(p.source, 'count')
+})
