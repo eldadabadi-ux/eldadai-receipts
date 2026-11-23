@@ -34,10 +34,8 @@ const sh = (cmd) => execSync(cmd, { encoding: 'utf8' }).trim()
 /** Turn a wall of test output into the one line that explains the failure. */
 function diagnose(out) {
   if (/vulnerabilit(y|ies)/i.test(out) && /npm audit fix/i.test(out))
-    return 'A production dependency has a known High vulnerability.
-'
-         + '      Run: npm audit --omit=dev   then   npm audit fix
-'
+    return 'A production dependency has a known High vulnerability.\n'
+         + '      Run: npm audit --omit=dev   then   npm audit fix\n'
          + '      If the fix is a breaking major, decide deliberately - do not delete this gate.'
   if (/Host not in allowlist|ENOTFOUND|EAI_AGAIN|fetch failed|ECONNREFUSED/i.test(out))
     return 'Could not reach Supabase. Check your connection and .env.test - this is not a code problem.'
