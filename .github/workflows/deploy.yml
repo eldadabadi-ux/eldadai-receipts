@@ -41,6 +41,12 @@ jobs:
       - name: Security tests (offline)
         run: npm run test:security:offline
 
+      # QA plan coverage — classification, duplicate prevention, financial
+      # balance. See tests/QA-PLAN.md. The model eval (npm run eval:scan) is
+      # deliberately NOT here: it spends real API budget on every run.
+      - name: QA suites
+        run: npm run test:qa
+
       # Production dependency tree only — a dev-only advisory under wrangler is
       # not shipped to a customer and must not block a release that fixes
       # something real.

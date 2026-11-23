@@ -91,6 +91,10 @@ if (!commits.length) {
 console.log(c.b('Checks'))
 step('unit tests        ', 'npm run test:unit')
 step('offline security  ', 'npm run test:security:offline')
+// QA plan coverage (tests/QA-PLAN.md): classification, duplicate prevention and
+// the financial-balance maths. Offline - the model eval costs API budget and is
+// run deliberately on a model/prompt change, not on every release.
+step('qa suites         ', 'npm run test:qa')
 
 // Dependency gate (ISO A.8.8). PRODUCTION tree only: dev-only advisories under
 // wrangler/vite are not shipped to anyone and must not block a release that
