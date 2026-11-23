@@ -15,8 +15,27 @@ import {
 } from '../../functions/api/_lib/extractReceipt.js'
 
 const codeOf = (fn) => { try { fn(); return null } catch (e) { return e.code } }
-const page = 'QUJDRA=='                                  // tiny valid-ish base64
-const bytes = (n) => 'A'.repeat(Math.ceil(n * 4 / 3))    // base64 of ~n bytes
+
+// Real signatures. Since 23.11.26 the caps are enforced alongside a magic-byte
+// check (ASVS V5.2.2), so a placeholder string is no longer a valid page — and
+// a test that fed one would be asserting on a file the product now refuses.
+const b64 = (...parts) => Buffer.from(Uint8Array.from(parts.flat())).toString('base64')
+const filler = (n) => Array(n).fill(0)
+const SIG = {
+  'image/jpeg':      [0xFF, 0xD8, 0xFF, 0xE0],
+  'image/jpg':       [0xFF, 0xD8, 0xFF, 0xE0],
+  'image/png':       [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A],
+  'image/webp':      [...'RIFF'].map(c => c.charCodeAt(0)).concat([0, 0, 0, 0], [...'WEBP'].map(c => c.charCodeAt(0))),
+  'image/gif':       [...'GIF89a'].map(c => c.charCodeAt(0)),
+  'image/heic':      [0, 0, 0, 24, ...[...'ftypheic'].map(c => c.charCodeAt(0))],
+  'image/heif':      [0, 0, 0, 24, ...[...'ftypmif1'].map(c => c.charCodeAt(0))],
+  'application/pdf': [...'%PDF-1.7'].map(c => c.charCodeAt(0)),
+}
+const fileOf = (mime) => b64(SIG[mime], filler(32))
+const page = fileOf('image/jpeg')
+
+/** A real JPEG padded out to ~n decoded bytes. */
+const bytes = (n) => b64(SIG['image/jpeg'], filler(Math.max(0, n - 4)))
 
 test('a normal single-page scan is accepted', () => {
   assert.equal(codeOf(() => assertExtractionInput([page], 'image/jpeg')), null)
@@ -57,8 +76,21 @@ test('every supported receipt type is accepted', () => {
     'image/jpeg', 'image/jpg', 'image/png', 'image/webp',
     'image/gif', 'image/heic', 'image/heif', 'application/pdf',
   ]) {
-    assert.equal(codeOf(() => assertExtractionInput([page], m)), null, `rejected ${m}`)
+    assert.equal(codeOf(() => assertExtractionInput([fileOf(m)], m)), null, `rejected ${m}`)
   }
+})
+
+test('a page whose bytes contradict the declared type is refused (V5.2.2)', () => {
+  assert.equal(codeOf(() => assertExtractionInput([fileOf('image/png')], 'image/jpeg')), 'MIME_MISMATCH')
+})
+
+test('one bad page hidden among good ones is still caught', () => {
+  const html = Buffer.from('<html><body>not an image</body></html>').toString('base64')
+  assert.equal(
+    codeOf(() => assertExtractionInput([page, page, html], 'image/jpeg')),
+    'UNRECOGNISED_FILE',
+    'every page is checked, not just the first',
+  )
 })
 
 test('mime types that are not receipts are refused', () => {
