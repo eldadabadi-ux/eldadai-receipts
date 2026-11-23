@@ -1,6 +1,7 @@
 import { Suspense, lazy, useState, useEffect, useTransition } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, Link, useLocation, useNavigate } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
+import toast from 'react-hot-toast'
 import { AuthProvider, useAuth } from './hooks/useAuth'
 import { SettingsProvider, useSettings } from './hooks/useSettings'
 import { TenantProvider, useBrand } from './hooks/useTenant'
@@ -17,6 +18,7 @@ import CookieConsent from './components/CookieConsent'
 import Sidebar, { SidebarRail } from './components/Sidebar'
 import MfaGate from './components/MfaGate'
 import ErrorBoundary from './components/ErrorBoundary'
+import { useIdleTimeout, clearIdleMarker } from './hooks/useIdleTimeout'
 import { Receipt, Tag, Camera, RefreshCw, LogOut, BarChart2, Settings, Menu, Store } from 'lucide-react'
 
 /**
@@ -302,7 +304,16 @@ function AppShell() {
   useEffect(() => { if (user) prefetchAllPages(user) }, [user])
 
   // Drop cached page data on sign-out so a different account never sees it.
-  const handleSignOut = () => { clearPageCache(); signOut() }
+  const handleSignOut = () => { clearIdleMarker(); clearPageCache(); signOut() }
+
+  // Inactivity sign-out (ASVS V7.3.1). A screen lock for the tablet left on the
+  // counter — NOT a defence against a stolen token, which only the Supabase
+  // token lifetime can bound. See useIdleTimeout for the reasoning on 4 hours.
+  useIdleTimeout(!!user, () => {
+    clearPageCache()
+    signOut()
+    toast('נותקת אוטומטית לאחר חוסר פעילות ממושך', { icon: '🔒', duration: 6000 })
+  })
 
   if (loading) return <LoadingSpinner />
   if (!user)   return <Navigate to="/login" replace />

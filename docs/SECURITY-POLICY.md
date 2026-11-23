@@ -110,18 +110,39 @@ occurrence will be improvised.*
 
 ## 4. Session policy — V7.1.1, V7.1.2
 
-Current behaviour is the Supabase default: ~1 hour access token with refresh
-rotation, no application-level inactivity timeout, no absolute lifetime cap, and
-no limit on concurrent sessions.
+**Inactivity: 4 hours** (`src/hooks/useIdleTimeout.js`, `IDLE_LIMIT_MS`).
 
-**This is a default, not a decision.** For a system holding a business's
-financial records it deserves an explicit one. Recorded here as the current
-state so that it is visible rather than assumed. *Action: decide an inactivity
-timeout and an absolute lifetime, then configure and record them.*
+Chosen from the business, not the standard: receipts are scanned in bursts
+through a working day, so a shorter limit would eject a café owner mid-shift and
+teach them to resent the product. Four hours of *zero* interaction means the
+person walked away. Shared across tabs via `localStorage`, so several open tabs
+are one session rather than several independent clocks.
 
-Sessions terminate on sign-out (which also clears the page cache) and on account
-deletion. Users **cannot** currently view or terminate their own other sessions,
-and an administrator cannot terminate another user's (V7.4.5, V7.5.2 — open).
+**What that control is, precisely:** a screen lock. It protects the tablet left
+on the counter and the shared back-office machine. It is **not** a defence
+against a stolen token — anyone holding the access token can use it until the
+token expires, and no client-side timing changes that. The server-side half is
+the token lifetime below, and the two are complementary, not alternatives.
+
+**Absolute lifetime: 7 days**, configured in Supabase (Auth → Sessions → "Time-box
+user sessions"). This is the half that actually bounds a stolen token.
+
+**Concurrent sessions:** unlimited, deliberately — one business commonly has a
+phone, a tablet and a back-office machine signed in at once.
+
+Sessions terminate on sign-out, on inactivity, and on account deletion. A user
+can end **all their other** sessions from Settings → Account security (`scope:
+'others'`), which is the lever needed after losing a phone — a full sign-out
+would also lock them out of the device they are holding.
+
+Note: supabase-js defaults `signOut()` to `scope: 'global'`, so an ordinary
+sign-out already ends every session on every device. Surprising and undocumented
+upstream; kept, because for financial records it is the safer default.
+
+**Still open:** users cannot *view* a list of their active sessions, and an
+administrator cannot terminate another user's (V7.4.5, part of V7.5.2). This
+project's GoTrue exposes no endpoint for either — `/admin/users/<id>/sessions`
+returns 404 — and a fabricated list would be worse than none.
 
 ## 5. Authorization model — V8.1.1, V8.1.2
 
@@ -263,9 +284,9 @@ These are unmet and deliberately listed rather than quietly omitted.
 
 | Item | Requirement | Owner |
 |---|---|---|
-| Session timeout and lifetime are undecided | V7.1.1, V7.3.1, V7.3.2 | Operator |
-| Users cannot see or end their own sessions | V7.5.2 | Developer |
-| Admin cannot terminate another user's sessions | V7.4.5 | Developer |
+| Users cannot SEE their active sessions (GoTrue has no endpoint) | V7.5.2 (part) | Upstream |
+| Admin cannot terminate another user's sessions (same reason) | V7.4.5 | Upstream |
+| Failed sign-ins are not in the audit trail (no token to verify) | V16.3.1 (part) | Upstream |
 | No breached-password check confirmed | V6.2.4, V6.2.12 | Operator (one console check) |
 | No lost-MFA recovery procedure | V6.4.4 | Operator |
 | Single service-role key for everything | V13.3.1, V13.3.2 | Developer (staged) |
