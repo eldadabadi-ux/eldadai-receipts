@@ -44,11 +44,19 @@ export async function writeAudit(env, { orgId = null, userId = null, action, tar
  * and recording it must never be able to fail the refusal.
  */
 export async function writeDenial(env, { userId = null, orgId = null, scope, reason, request = null }) {
-  let method = null, path = null
+  let method = null, path = null, ip = null
   try {
     if (request) {
       method = request.method
       path = new URL(request.url).pathname      // path only — never the query string
+      // CF-Connecting-IP is set by Cloudflare and cannot be spoofed by the
+      // caller: a client-supplied X-Forwarded-For is overwritten at the edge.
+      // Recorded on DENIALS only (ASVS V15.3.4) — without it a refused attempt
+      // cannot be attributed to a source at all, which is most of the value of
+      // having noticed it. Successful requests are not IP-logged: an address is
+      // personal data, and the security case for keeping one exists for a
+      // refusal, not for ordinary use.
+      ip = request.headers.get('cf-connecting-ip') || null
     }
   } catch { /* URL unparseable → leave null */ }
 
@@ -56,6 +64,6 @@ export async function writeDenial(env, { userId = null, orgId = null, scope, rea
     userId, orgId,
     action: 'access_denied',
     target: scope,
-    meta: { reason, method, path },
+    meta: { reason, method, path, ip },
   })
 }

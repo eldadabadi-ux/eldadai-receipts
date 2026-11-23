@@ -162,4 +162,12 @@ test('a denial record cannot be used to write attacker-controlled text', () => {
     'writeDenial must record the path only, never the query string')
   assert.ok(!/searchParams|request\.url\s*\}/.test(audit),
     'writeDenial must not record caller-supplied query values')
+  // The source address must come from the edge header, which the caller cannot
+  // forge — never from X-Forwarded-For, which it can.
+  assert.match(audit, /cf-connecting-ip/,
+    'a refused attempt with no source address cannot be attributed (V15.3.4)')
+  // Match the READ, not the word: the comment above the code names
+  // X-Forwarded-For precisely to explain why it is not used.
+  assert.ok(!/headers\.get\(\s*['"]x-forwarded-for/i.test(audit),
+    'X-Forwarded-For is caller-supplied and must not be trusted as the source')
 })
