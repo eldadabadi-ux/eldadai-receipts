@@ -6,15 +6,21 @@
  * itself. The anon client cannot do this: it needs the service-role key, which
  * lives only on the server.
  *
- * Order: files → rows → organizations → auth user. Data first, login last, so a
- * partial failure never orphans data behind a deleted login (the user retries).
+ * Order: files → rows (atomic) → auth user. Data first, login last, so a partial
+ * failure never orphans data behind a deleted login (the user retries).
  *
- * WHY the explicit row deletion, when every tenant table already carries
- * `user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE`: the cascade is the
- * backstop, not the guarantee. A table shipped without the FK, or a row whose
- * user_id was nulled, would survive silently and nobody would know. Deleting
- * explicitly makes the erasure scope auditable — the response and the audit row
- * say which tables were cleared and how many objects were removed.
+ * WHY a Postgres function rather than REST deletes (ASVS V2.3.3): fifteen REST
+ * calls are fifteen transactions, so a failure halfway through left the account
+ * PARTIALLY erased and said so as a count of errors. Erasure is irreversible and
+ * is a legal promise — "we deleted some of it" satisfies nobody, and the user
+ * cannot tell which half survived. erase_account() either removes every row or
+ * none, and returns per-table counts so the scope stays auditable.
+ *
+ * The cascade on `user_id … ON DELETE CASCADE` remains the backstop; deleting
+ * explicitly is what makes the scope VISIBLE rather than implied.
+ *
+ * Storage is the one step outside the transaction — object storage has no
+ * transaction to join — so files go first, where a retry is harmless.
  *
  * What deliberately SURVIVES (both disclosed in the privacy policy):
  *   - `audit_log` — append-only, hash-chained tamper-evidence (A.8.15). Its
@@ -34,30 +40,10 @@ const DELETE_CHUNK = 100       // objects removed per request
 const MAX_OBJECTS = 20000      // hard stop; a runaway prefix must not hang the worker
 
 /**
- * Every table keyed by user_id, children before parents.
- *
- * Order matters even with ON DELETE CASCADE: deleting a parent first makes the
- * child's delete a no-op that still reports 200, which would hide a missing
- * cascade instead of surfacing it.
+ * The table list now lives in the erase_account() SQL function, so the
+ * deletion order and the transaction live together. Keeping a second copy here
+ * would be a list that drifts from the one that actually runs.
  */
-// NOTE: `mail_connections` is absent on purpose — the Gmail/Outlook OAuth
-// channel and its table were retired on 17.11.2026
-// (supabase_remove_mail_scan.sql). Receipts now arrive through the forwarding
-// alias instead, which stores no mailbox credential at all.
-const USER_TABLES = [
-  'sales_lines',
-  'sales_days',
-  'event_items',
-  'event_quotes',
-  'supplier_budgets',
-  'supplier_aliases',
-  'receipts',
-  'receipt_books',
-  'categories',
-  'suppliers',
-  'user_settings',
-  'memberships',
-]
 
 function getSupabaseUrl(env) {
   return env.VITE_SUPABASE_URL || env.SUPABASE_URL || 'https://dsoucojqjrodxozcbicf.supabase.co'
@@ -146,71 +132,41 @@ export const onRequestPost = wrapAuthErrors(async (context) => {
     errors.push(`storage:${e?.message || 'err'}`)
   }
 
-  // ── 2. Organizations the user owns — resolved BEFORE the auth delete, which
-  //       would null owner_id out from under us (owner_id … ON DELETE SET NULL).
-  let ownedOrgs = []
+  // ── 2. Erase every row, atomically ────────────────────────────────────────
+  // ONE call, one transaction. Fifteen sequential REST deletes each committed
+  // on their own, so a failure in the middle left the account partly erased and
+  // reported it as a count of errors — the wrong shape for an irreversible
+  // legal promise (GDPR Art.17, ASVS V2.3.3). Organizations the user solely
+  // owns are handled inside the same transaction: deleted, or anonymised when
+  // the operator's billing record hangs off them.
+  let erased = null
   try {
-    const res = await fetch(`${url}/rest/v1/organizations?owner_id=eq.${qid}&select=id`, { headers: svc })
-    if (res.ok) ownedOrgs = (await res.json()).map(o => o?.id).filter(Boolean)
+    const res = await fetch(`${url}/rest/v1/rpc/erase_account`, {
+      method: 'POST',
+      headers: { ...svc, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ p_user_id: uid }),
+    })
+    if (!res.ok) {
+      const detail = (await res.text().catch(() => '')).slice(0, 300)
+      console.error('[account/delete] erase_account failed:', res.status, detail)
+      // Nothing was committed — the transaction rolled back — and the auth user
+      // is untouched, so the account is intact and the user can retry. Saying
+      // so is more useful than a partial-success count.
+      return Response.json(
+        { error: 'delete_failed', message: 'מחיקת החשבון נכשלה ולא בוצע שינוי. נסה שוב או פנה לתמיכה.' },
+        { status: 502 },
+      )
+    }
+    erased = await res.json()
   } catch (e) {
-    errors.push(`orgs-list:${e?.message || 'err'}`)
+    console.error('[account/delete] erase_account error:', e?.message)
+    return Response.json(
+      { error: 'delete_failed', message: 'מחיקת החשבון נכשלה ולא בוצע שינוי. נסה שוב או פנה לתמיכה.' },
+      { status: 500 },
+    )
   }
 
-  // ── 3. Delete the user's rows, children first ──────────────────────────────
-  const cleared = []
-  for (const t of USER_TABLES) {
-    try {
-      const res = await fetch(`${url}/rest/v1/${t}?user_id=eq.${qid}`, {
-        method: 'DELETE',
-        headers: { ...svc, Prefer: 'return=minimal' },
-      })
-      // 404 = table doesn't exist in this project → ignore.
-      if (res.ok) cleared.push(t)
-      else if (res.status !== 404) errors.push(`${t}:${res.status}`)
-    } catch (e) {
-      errors.push(`${t}:${e?.message || 'err'}`)
-    }
-  }
-
-  // ── 4. Organizations left with no members ──────────────────────────────────
-  // Deleted outright when nothing of the operator's hangs off them (the delete
-  // cascades feature_flags and any org-scoped leftovers). When a client_accounts
-  // row exists it is the operator's own bookkeeping, so the org is ANONYMISED
-  // instead — the billing record survives without the business's identity.
-  let orgsDeleted = 0, orgsAnonymised = 0
-  for (const orgId of ownedOrgs) {
-    try {
-      const mem = await fetch(
-        `${url}/rest/v1/memberships?org_id=eq.${encodeURIComponent(orgId)}&select=user_id&limit=1`,
-        { headers: svc })
-      if (!mem.ok) { errors.push(`org-members:${mem.status}`); continue }
-      if ((await mem.json()).length > 0) continue      // someone else still works here
-
-      const ca = await fetch(
-        `${url}/rest/v1/client_accounts?org_id=eq.${encodeURIComponent(orgId)}&select=org_id&limit=1`,
-        { headers: svc })
-      const hasBilling = ca.ok && (await ca.json()).length > 0
-
-      if (hasBilling) {
-        const an = await fetch(`${url}/rest/v1/organizations?id=eq.${encodeURIComponent(orgId)}`, {
-          method: 'PATCH',
-          headers: { ...svc, 'Content-Type': 'application/json', Prefer: 'return=minimal' },
-          body: JSON.stringify({ name: 'חשבון שנמחק', business_name: null, logo: null, slug: null }),
-        })
-        if (an.ok) orgsAnonymised++; else errors.push(`org-anon:${an.status}`)
-      } else {
-        const del = await fetch(`${url}/rest/v1/organizations?id=eq.${encodeURIComponent(orgId)}`, {
-          method: 'DELETE',
-          headers: { ...svc, Prefer: 'return=minimal' },
-        })
-        if (del.ok) orgsDeleted++; else errors.push(`org-del:${del.status}`)
-      }
-    } catch (e) {
-      errors.push(`org:${e?.message || 'err'}`)
-    }
-  }
-
-  // ── 5. Delete the auth user (must succeed) ─────────────────────────────────
+  // ── 3. Delete the auth user — LAST, so a failure never orphans data ──────────────────────────────────────
   try {
     const res = await fetch(`${url}/auth/v1/admin/users/${qid}`, { method: 'DELETE', headers: svc })
     if (!res.ok) {
@@ -237,20 +193,23 @@ export const onRequestPost = wrapAuthErrors(async (context) => {
     action: 'account_deleted',
     target: uid,
     meta: {
-      tables: cleared.length,
+      rows: erased?.tables || {},
       files: filesRemoved,
-      orgs_deleted: orgsDeleted,
-      orgs_anonymised: orgsAnonymised,
-      errors: errors.length,
+      orgs_deleted: erased?.orgs_deleted ?? 0,
+      orgs_anonymised: erased?.orgs_anonymised ?? 0,
+      storage_errors: errors.length,
     },
   })
 
   return Response.json({
     ok: true,
-    tables_cleared: cleared.length,
+    rows_deleted: erased?.tables || {},
     files_removed: filesRemoved,
-    orgs_deleted: orgsDeleted,
-    orgs_anonymised: orgsAnonymised,
-    errors: errors.length ? errors : undefined,
+    orgs_deleted: erased?.orgs_deleted ?? 0,
+    orgs_anonymised: erased?.orgs_anonymised ?? 0,
+    // Storage is the one step that is not transactional (object storage has no
+    // transaction to join). Repeatable and harmless to retry, so it is reported
+    // rather than fatal.
+    storage_errors: errors.length ? errors : undefined,
   })
 })
