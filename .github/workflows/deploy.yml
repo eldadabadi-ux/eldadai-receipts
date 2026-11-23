@@ -27,7 +27,13 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # 22, not 20: `node --test "tests/unit/*.test.js"` relies on the test
+          # runner expanding the glob itself, which arrived in Node 22. The
+          # pattern is quoted so it works on Windows, where the shell will not
+          # expand it — on Node 20 that combination resolves to nothing and the
+          # runner exits with "Could not find". Enforced by `engines` in
+          # package.json so the two cannot drift apart again.
+          node-version: '22'
           cache: 'npm'
 
       - name: Install dependencies
