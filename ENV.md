@@ -39,6 +39,7 @@ and in local `.env` / `.env.test` files that are git-ignored.
 | `INBOUND_DOMAIN` | `functions/api/inbound/alias.js` | the domain personal inbound addresses live on (`eldadai.co.il`); until set, the address is reserved but inactive |
 | `ALLOWED_ORIGIN` | `functions/api/_lib/cors.js` | OPTIONAL extra CORS origins, comma-separated. The canonical origin, localhost and `*.eldadai-receipts.pages.dev` are allowed without it; an unlisted origin is refused, never echoed back |
 | `SUPERADMIN_EMAIL` | `functions/api/_lib/guards.js` (used by every `admin/*` route) | platform-owner account |
+| `CRON_SECRET` | `functions/api/admin/chain-check.js` + the `audit-chain` GitHub workflow | shared secret the scheduled audit-chain check presents. Set the SAME value in the Cloudflare Pages env and in the repository secrets; without it the daily check cannot run and the workflow fails loudly rather than passing quietly |
 
 ## Bindings (Cloudflare, not env vars)
 
