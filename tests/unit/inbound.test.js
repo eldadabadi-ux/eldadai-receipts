@@ -19,21 +19,43 @@ test('aliasFromAddress rejects malformed locals', () => {
   }
 })
 
+// Real leading bytes — an attachment is now judged by its signature, not by the
+// MIME header the SENDER wrote (ASVS V5.2.2), so the fixtures must be genuine.
+const b64 = (bytes) => Buffer.from(Uint8Array.from(bytes)).toString('base64')
+const JPEG = b64([0xFF, 0xD8, 0xFF, 0xE0, 0, 16, 74, 70, 73, 70, 0, 1, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0])
+const PNG  = b64([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1])
+const PDF  = b64([0x25, 0x50, 0x44, 0x46, 0x2D, 0x31, 0x2E, 0x37, 0x0A, 0x25, 0xE2, 0xE3, 0xCF, 0xD3, 0x0A, 0x31, 0x20, 0x30, 0x20, 0x6F, 0x62, 0x6A])
+
 test('pickAttachments keeps only OCR-able types, normalized', () => {
   const out = pickAttachments([
-    { filename: 'a.pdf', mimeType: 'application/pdf', contentBase64: 'AAAA' },
-    { filename: 'b.jpg', contentType: 'image/jpeg; name=b', content: 'BBBB' },
-    { filename: 'sig.txt', mimeType: 'text/plain', contentBase64: 'CCCC' },     // dropped
-    { filename: 'cal.ics', mimeType: 'text/calendar', contentBase64: 'DDDD' },  // dropped
+    { filename: 'a.pdf', mimeType: 'application/pdf', contentBase64: PDF },
+    { filename: 'b.jpg', contentType: 'image/jpeg; name=b', content: JPEG },
+    { filename: 'sig.txt', mimeType: 'text/plain', contentBase64: PNG },        // dropped (type)
+    { filename: 'cal.ics', mimeType: 'text/calendar', contentBase64: PDF },     // dropped (type)
     { filename: 'empty.png', mimeType: 'image/png', contentBase64: '' },        // dropped (no bytes)
   ])
   assert.equal(out.length, 2)
   assert.deepEqual(out.map(a => a.mimeType), ['application/pdf', 'image/jpeg'])
 })
 
+test('an attachment whose bytes contradict its MIME header is dropped', () => {
+  // The header on an email part is written by the sender, so it is a claim.
+  const html = Buffer.from('<html><body>not an image at all, whatever the header says</body></html>', 'utf8').toString('base64')
+  const out = pickAttachments([
+    { filename: 'invoice.jpg', mimeType: 'image/jpeg', contentBase64: html },
+    { filename: 'real.jpg',    mimeType: 'image/jpeg', contentBase64: JPEG },
+  ])
+  assert.equal(out.length, 1, 'the mislabelled part must go')
+  assert.equal(out[0].filename, 'real.jpg', 'and the genuine receipt beside it must stay')
+})
+
+test('a png declared as a jpeg is dropped — the two must agree', () => {
+  assert.equal(pickAttachments([{ filename: 'x.jpg', mimeType: 'image/jpeg', contentBase64: PNG }]).length, 0)
+})
+
 test('pickAttachments drops oversized files', () => {
-  const big = 'A'.repeat(15 * 1024 * 1024)   // ~11MB decoded, over the 10MB cap
-  assert.equal(pickAttachments([{ filename: 'big.pdf', mimeType: 'application/pdf', contentBase64: big }]).length, 0)
+  const big = JPEG + 'A'.repeat(15 * 1024 * 1024)   // valid signature, over the 10MB cap
+  assert.equal(pickAttachments([{ filename: 'big.jpg', mimeType: 'image/jpeg', contentBase64: big }]).length, 0)
 })
 
 test('genAlias yields a valid alias; Hebrew names fall back to inbox', () => {

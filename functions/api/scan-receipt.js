@@ -78,6 +78,9 @@ export const onRequestPost = wrapAuthErrors(async (context) => {
     if (err?.code === 'TOO_MANY_PAGES') return errorResponse(`ניתן לסרוק עד ${MAX_PAGES} עמודים במסמך אחד`, 413, { code: 'too_many_pages', headers: CORS })
     if (err?.code === 'TOO_LARGE')      return errorResponse('אחד העמודים גדול מ-10MB', 413, { code: 'too_large', headers: CORS })
     if (err?.code === 'BAD_MIME')       return errorResponse('סוג הקובץ אינו נתמך (JPG, PNG, WEBP, HEIC או PDF)', 415, { code: 'bad_mime', headers: CORS })
+    // The declared type is a claim; the bytes are the fact (ASVS V5.2.2).
+    if (err?.code === 'UNRECOGNISED_FILE') return errorResponse('הקובץ אינו תמונה או PDF תקינים', 415, { code: 'unrecognised_file', headers: CORS })
+    if (err?.code === 'MIME_MISMATCH')     return errorResponse('תוכן הקובץ אינו תואם לסוג שהוצהר', 415, { code: 'mime_mismatch', headers: CORS })
     return errorResponse('שגיאת עיבוד', 500, { code: 'processing_error', err, headers: CORS })
   }
 })

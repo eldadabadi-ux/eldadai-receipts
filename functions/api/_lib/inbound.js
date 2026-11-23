@@ -8,6 +8,8 @@
  * to an alias, which attachments are worth OCR-ing, and how a fresh alias is minted.
  */
 
+import { verifyFileType, prefixFromBase64 } from './fileType.js'
+
 const ALIAS_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 /** Attachment types the OCR pipeline can read. */
@@ -42,6 +44,11 @@ export function pickAttachments(attachments) {
     if (!OCR_MIME_RE.test(mimeType) || !b64) continue
     // base64 length → byte count (4 chars ≈ 3 bytes); cheap size guard.
     if (Math.floor(b64.length * 3 / 4) > MAX_ATTACH_BYTES) continue
+    // A MIME header on an email part is written by the sender, so it is a claim
+    // like any other. Parts whose bytes disagree are DROPPED rather than
+    // refused: one odd attachment must not reject a message that also carries a
+    // real receipt (ASVS V5.2.2).
+    if (!verifyFileType(prefixFromBase64(b64), mimeType).ok) continue
     out.push({ filename: String(a?.filename || a?.name || 'attachment').slice(0, 200), mimeType, b64 })
   }
   return out

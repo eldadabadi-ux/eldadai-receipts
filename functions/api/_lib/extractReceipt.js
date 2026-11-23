@@ -132,6 +132,8 @@ async function loadCategories(supabaseUrl, serviceKey, userId) {
  * real but the unit was wrong. An unvalidated mimeType additionally let the
  * caller pick what the upstream model was told it had received.
  */
+import { verifyFileType, prefixFromBase64 } from './fileType.js'
+
 export const MAX_PAGES         = 10                  // pages of ONE receipt
 export const MAX_IMAGE_BYTES   = 10 * 1024 * 1024    // per page — matches the inbound cap
 export const ALLOWED_MIME_RE   = /^(image\/(jpe?g|png|webp|gif|heic|heif)|application\/pdf)$/i
@@ -161,6 +163,17 @@ export function assertExtractionInput(images, mimeType) {
   for (const img of imgs) {
     if (b64Bytes(img) > MAX_IMAGE_BYTES) {
       throw badInput(`Page exceeds ${Math.round(MAX_IMAGE_BYTES / 1024 / 1024)}MB`, 'TOO_LARGE')
+    }
+  }
+
+  // The declared type is a claim; the bytes are the fact (ASVS V5.2.2). Checked
+  // on EVERY page, because a multi-page post could hide one bad page among good
+  // ones and only the first was ever looked at by anything downstream.
+  for (const [i, img] of imgs.entries()) {
+    const v = verifyFileType(prefixFromBase64(img), mime)
+    if (!v.ok) {
+      const where = imgs.length > 1 ? ` (page ${i + 1})` : ''
+      throw badInput(`${v.detail}${where}`, v.code)
     }
   }
   return true
