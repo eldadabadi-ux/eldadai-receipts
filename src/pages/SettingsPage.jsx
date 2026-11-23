@@ -3,7 +3,7 @@ import { useSettings } from '../hooks/useSettings'
 import { useAuth } from '../hooks/useAuth'
 import { useTenant } from '../hooks/useTenant'
 import { useFeatureFlags } from '../lib/flags'
-import { Settings, Save, Info, Percent, Image as ImageIcon, Trash2, Building2, FolderOpen, Bell, Smartphone, Download, Share, Plus, Check, RefreshCw, Database, Upload, ScanLine, KeyRound, ShieldCheck, AlertTriangle } from 'lucide-react'
+import { Settings, Save, Info, Percent, Image as ImageIcon, Trash2, Building2, FolderOpen, Bell, Smartphone, Download, Share, Plus, Check, RefreshCw, Database, Upload, ScanLine, KeyRound, ShieldCheck, AlertTriangle, LogOut } from 'lucide-react'
 import Modal from '../components/ui/Modal'
 import { Link } from 'react-router-dom'
 import { fileToSquareLogo } from '../lib/imageUtils'
@@ -23,7 +23,22 @@ const AUTO_BACKUP_KEY = 'moses_auto_backup'
 
 export default function SettingsPage() {
   const { settings, updateSettings, saving } = useSettings()
-  const { user, updatePassword, deleteAccount } = useAuth()
+  const { user, updatePassword, deleteAccount, signOutOthers } = useAuth()
+  const [soBusy, setSoBusy] = useState(false)
+
+  // Sign out every OTHER device and stay signed in here. Confirmed first: it
+  // is irreversible for anyone currently working on another machine, and the
+  // person clicking it may not realise a colleague is one of them.
+  async function signOutOthersClick() {
+    if (!window.confirm('לנתק את החשבון בכל המכשירים האחרים?\n\nתישאר מחובר במכשיר הזה. בכל מכשיר אחר תידרש התחברות מחדש.')) return
+    setSoBusy(true)
+    try {
+      await signOutOthers()
+      toast.success('כל המכשירים האחרים נותקו')
+    } catch (err) {
+      toast.error('הניתוק נכשל: ' + (err?.message || ''))
+    } finally { setSoBusy(false) }
+  }
   const { org, updateOrg } = useTenant()
   const flags = useFeatureFlags()
   const { canInstall, promptInstall, isIOS, isStandalone } = useInstall()
@@ -579,6 +594,21 @@ export default function SettingsPage() {
                 <KeyRound size={15} /> {pwBusy ? 'מעדכן…' : 'עדכן סיסמה'}
               </button>
             </div>
+          </div>
+
+          {/* Sign out everywhere else (ASVS V7.5.2) */}
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 18 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14.5, fontWeight: 600, color: 'var(--text-dim)', marginBottom: 8 }}>
+              <LogOut size={15} color="var(--accent)" /> מכשירים אחרים
+            </label>
+            <p style={{ margin: '0 0 12px', fontSize: 13.5, color: 'var(--text-mute)', lineHeight: 1.6 }}>
+              איבדת טלפון או נשארת מחובר במחשב אחר? הפעולה הזו מנתקת את החשבון בכל המכשירים האחרים
+              ומשאירה אותך מחובר כאן. בכל מכשיר אחר תידרש התחברות מחדש.
+            </p>
+            <button onClick={signOutOthersClick} disabled={soBusy}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '10px 16px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--panel)', color: 'var(--text)', fontSize: 14.5, fontWeight: 600, cursor: soBusy ? 'default' : 'pointer', fontFamily: 'var(--font-main)' }}>
+              <LogOut size={15} /> {soBusy ? 'מנתק…' : 'נתק את כל המכשירים האחרים'}
+            </button>
           </div>
 
           {/* Danger zone — delete account */}

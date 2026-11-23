@@ -7,7 +7,7 @@ import { Fingerprint } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 export default function LoginPage() {
-  const { user, signIn, requestPasswordReset } = useAuth()
+  const { user, signIn, requestPasswordReset, recordSession } = useAuth()
   const { settings } = useSettings()
   const [mode, setMode]         = useState('login') // 'login' | 'reset'
   const [email, setEmail]       = useState('')
@@ -39,6 +39,7 @@ export default function LoginPage() {
     setLoading(true)
     try {
       await signInWithPasskey()           // the auth listener routes on success
+      recordSession?.('passkey')          // audit the session start (V16.3.1)
     } catch (err) {
       const msg = passkeyErrorText(err)
       if (msg) toast.error(msg)

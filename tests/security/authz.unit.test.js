@@ -171,3 +171,30 @@ test('a denial record cannot be used to write attacker-controlled text', () => {
   assert.ok(!/headers\.get\(\s*['"]x-forwarded-for/i.test(audit),
     'X-Forwarded-For is caller-supplied and must not be trusted as the source')
 })
+
+/**
+ * Authentication events in the audit trail (ASVS V16.3.1).
+ *
+ * The trail knew about privileged writes and refused access, but not about
+ * when a session began — so a privileged action could not be tied back to the
+ * login that performed it.
+ */
+test('the session-event route verifies the token before writing anything', () => {
+  const r = routes.find(x => x.path === 'account/session-event.js')
+  assert.ok(r, 'account/session-event.js missing')
+  assert.match(r.src, /requireMember|requireUser/,
+    'an unauthenticated write endpoint would let anyone flood the audit log')
+  assert.match(r.src, /writeAudit\(/)
+  assert.match(r.src, /checkRateLimit/, 'one write per sign-in — anything more is a loop')
+})
+
+test('the event and method a client may report are allowlisted, not free text', () => {
+  const r = routes.find(x => x.path === 'account/session-event.js')
+  // An append-only log must never carry a caller-chosen string: it cannot be
+  // edited afterwards, so junk written into it is permanent.
+  assert.match(r.src, /const EVENTS\s*=/, 'the action must come from a closed set')
+  assert.match(r.src, /\['password', 'passkey', 'unknown'\]\.includes/,
+    'the login method must be allowlisted')
+  assert.ok(!/user-agent/i.test(r.src),
+    'the user agent is long and caller-controlled — it must not reach the log')
+})
