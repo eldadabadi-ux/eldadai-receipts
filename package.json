@@ -20,7 +20,8 @@
     "test:security:offline": "node --test \"tests/security/*.unit.test.js\"",
     "audit:prod": "npm audit --omit=dev --audit-level=high",
     "audit:chain": "node --env-file=.env.test scripts/audit-chain-diagnose.cjs",
-    "test:qa": "node --test \"tests/unit/duplicateCheck.test.js\" \"tests/unit/salesMath.test.js\" \"tests/unit/quotes.test.js\" \"tests/unit/reconciliation.test.js\" \"tests/unit/evalScore.test.js\" \"tests/unit/extract.test.js\" \"tests/unit/classify.test.js\" \"tests/unit/installments.test.js\" \"tests/unit/budgets.test.js\""
+    "test:qa": "node --test \"tests/unit/duplicateCheck.test.js\" \"tests/unit/salesMath.test.js\" \"tests/unit/quotes.test.js\" \"tests/unit/reconciliation.test.js\" \"tests/unit/evalScore.test.js\" \"tests/unit/extract.test.js\" \"tests/unit/classify.test.js\" \"tests/unit/installments.test.js\" \"tests/unit/budgets.test.js\"",
+    "sbom": "npm sbom --sbom-format=cyclonedx --omit=dev > docs/sbom.cyclonedx.json"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.0",
