@@ -27,6 +27,7 @@ import {
 } from 'lucide-react'
 import { DOC_TYPES, docTypeOf, docTypeLabel, isExpenseDoc, DOC_COL_RE } from '../lib/docTypes'
 import { openIssues } from '../lib/reconciliation'
+import { findDuplicates, duplicateWarning } from '../lib/duplicateCheck'
 import { deleteReceiptFile, signedReceiptUrl, uploadReceiptFile } from '../lib/storage'
 import { fetchLegacyInlineImage } from '../lib/receiptImage'
 import { vendorSimilarity, AUTO_THRESHOLD } from '../lib/supplierMatch'
@@ -737,6 +738,18 @@ export default function ReceiptsPage() {
       }
       const vatCols = { amount_before_vat: beforeAmt, vat_amount: vatAmt, vat_rate: vatRate }
       const docCols = { doc_type: reviewDocType, doc_number: reviewDocNumber || null }
+
+      // Already in the book? The mail channel has deduplicated since it shipped;
+      // the camera never did, so the same receipt photographed twice was counted
+      // twice — straight into the expense total and the profit figure. Asked,
+      // not enforced: two identical small purchases on one day are real.
+      const dup = findDuplicates(
+        { ...base, ...docCols, id: null },
+        receipts,
+      )
+      // Returning here is enough: approveScan's `finally` clears `approving`.
+      if (dup.level && !window.confirm(duplicateWarning(dup))) return
+
       // The migration is authoritative — these columns exist. The retry ladder
       // that used to sit here hid real write failures (guardrail 1, audit M1).
       const { error } = await supabase.from('receipts').insert({ ...base, org_id: orgId || null, ...vatCols, ...docCols, installments: saneInstallments(reviewInstallments) })
@@ -851,6 +864,9 @@ export default function ReceiptsPage() {
       invalidateReceiptData()
       setReceipts(prev => { const next = prev.map(r => r.id === editId ? { ...r, ...payload, ...vatCols, doc_type: docType, ...approve } : r); setCached('receipts', next); return next })
     } else {
+      const dup = findDuplicates({ ...payload, doc_type: docType, id: null }, receipts)
+      if (dup.level && !window.confirm(duplicateWarning(dup))) return
+
       const resp = await supabase.from('receipts').insert({ ...payload, org_id: orgId || null, ...vatCols, doc_type: docType }).select().single()
       if (resp.error) { toast.error('שגיאה בשמירה: ' + (resp.error.message || '')); return }
       toast.success('קבלה נשמרה')
