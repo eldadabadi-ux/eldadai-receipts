@@ -112,7 +112,20 @@ WHERE NOT EXISTS (
 -- ── 4. Verifier: check from the baseline forward, and say so ────────────────
 -- Same formula as before. The change is that it reports the baseline it
 -- started from, so "ok" can never quietly mean "we skipped the awkward part".
-CREATE OR REPLACE FUNCTION verify_audit_chain()
+--
+-- DROP first, and it is NOT optional: the original returned
+-- TABLE(ok, broken_id, checked) and this returns two columns more.
+-- CREATE OR REPLACE cannot change a function's return type — Postgres refuses
+-- with "cannot change return type of existing function", and because that
+-- aborts mid-statement the editor reports the error against the NEXT statement
+-- (the GRANT), which sends you looking in the wrong place entirely.
+--
+-- Safe to drop: nothing in the database depends on it. It is called only over
+-- RPC by functions/api/admin/{audit,chain-check}.js, which tolerate its
+-- absence (admin/audit.js falls back to a client-side linkage check).
+DROP FUNCTION IF EXISTS verify_audit_chain();
+
+CREATE FUNCTION verify_audit_chain()
 RETURNS TABLE(ok boolean, broken_id bigint, checked bigint, baseline_id bigint, skipped bigint)
 LANGUAGE plpgsql
 SECURITY DEFINER
